@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Patent Demo - Content Authenticity Visualization</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root { --bg:#f7f6f2; --card:#fff; --text:#1f1f1f; --muted:#666; --primary:#01696f; --green:#2e7d32; --orange:#c77800; --red:#b42318; --line:#ddd; }
+    body { font-family: Arial, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 24px; }
+    .wrap { max-width: 1250px; margin: 0 auto; }
+    h1,h2,h3,p { margin-top:0; }
+    .topgrid,.grid,.stats { display:grid; gap:18px; }
+    .topgrid { grid-template-columns: 1.1fr .9fr; }
+    .grid { grid-template-columns: repeat(2,1fr); margin-top:18px; }
+    .stats { grid-template-columns: repeat(4,1fr); margin:18px 0; }
+    .card { background: var(--card); border:1px solid var(--line); border-radius:14px; padding:18px; box-shadow:0 4px 12px rgba(0,0,0,.05); }
+    textarea,select,button { width:100%; box-sizing:border-box; font-size:16px; padding:12px; border-radius:10px; border:1px solid #ccc; }
+    textarea { min-height:220px; resize:vertical; }
+    button { background:var(--primary); color:#fff; border:none; font-weight:700; cursor:pointer; margin-top:12px; }
+    .metric { font-size:30px; font-weight:700; margin-top:6px; }
+    .sub { color:var(--muted); font-size:14px; }
+    .pill { display:inline-block; padding:6px 10px; border-radius:999px; color:#fff; font-size:14px; font-weight:700; }
+    .ok{background:var(--green)} .warn{background:var(--orange)} .bad{background:var(--red)}
+    .mono{font-family:Consolas,monospace; font-size:13px; word-break:break-all;}
+    table { width:100%; border-collapse: collapse; }
+    td,th { border-bottom:1px solid #eee; padding:10px 8px; text-align:left; vertical-align:top; }
+    ul { margin:0; padding-left:18px; }
+    canvas { width:100% !important; height:280px !important; }
+    #scoreGauge { height:220px !important; }
+    @media (max-width: 980px){ .topgrid,.grid,.stats{grid-template-columns:1fr;} }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Digital Content Authenticity Verification Dashboard</h1>
+  <p class="sub">Visualization for the patent prototype showing AI-style scoring, evidence extraction, and blockchain-style audit logging.</p>
+
+  <div class="topgrid">
+    <div class="card">
+      <h2>Input Content</h2>
+      <textarea id="content">This image was taken on 17 April 2026 at Marina Beach during a student innovation meetup. No edits were made after capture. The original creator signed the file and uploaded it from a verified device. Timestamp metadata and source details are preserved.</textarea>
+      <label class="sub">Content Type</label>
+      <select id="ctype">
+        <option>Text Document</option>
+        <option selected>Image Metadata</option>
+        <option>Video Transcript</option>
+        <option>Audio Transcript</option>
+      </select>
+      <button id="runBtn">Analyze & Visualize</button>
+    </div>
+    <div class="card">
+      <h2>Current Decision</h2>
+      <div id="classification" style="margin-bottom:12px">-</div>
+      <div class="stats" style="grid-template-columns: repeat(2,1fr); margin:0; gap:12px;">
+        <div>
+          <div class="sub">Authenticity Score</div>
+          <div class="metric" id="score">-</div>
+        </div>
+        <div>
+          <div class="sub">Manipulation Risk</div>
+          <div class="metric" id="risk">-</div>
+        </div>
+        <div>
+          <div class="sub">Model Confidence</div>
+          <div class="metric" id="confidence">-</div>
+        </div>
+        <div>
+          <div class="sub">Word Count</div>
+          <div class="metric" id="wordCount">-</div>
+        </div>
+      </div>
+      <p class="sub" style="margin-top:14px"><strong>Hash:</strong> <span id="hash" class="mono">-</span></p>
+      <p class="sub"><strong>Transaction:</strong> <span id="txid" class="mono">-</span></p>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="card"><div class="sub">Trusted Signals</div><div class="metric" id="trustCount">0</div></div>
+    <div class="card"><div class="sub">Risk Signals</div><div class="metric" id="riskCount">0</div></div>
+    <div class="card"><div class="sub">Ledger Events</div><div class="metric" id="ledgerCount">0</div></div>
+    <div class="card"><div class="sub">Verification State</div><div class="metric" id="verifyState" style="font-size:24px">Ready</div></div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h3>Authenticity Gauge</h3>
+      <canvas id="scoreGauge"></canvas>
+    </div>
+    <div class="card">
+      <h3>Score Trend</h3>
+      <canvas id="trendChart"></canvas>
+    </div>
+    <div class="card">
+      <h3>Signal Distribution</h3>
+      <canvas id="signalChart"></canvas>
+    </div>
+    <div class="card">
+      <h3>Evidence Summary</h3>
+      <ul id="evidenceList"><li>Run analysis to see extracted signals.</li></ul>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:18px">
+    <h3>Ledger Event Table</h3>
+    <table id="ledgerTable">
+      <thead><tr><th>Time</th><th>Score</th><th>Classification</th><th>Hash</th><th>Tx ID</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+<script>
+let trend = [];
+let gaugeChart, trendChart, signalChart;
+
+async function sha256(text){
+  const enc = new TextEncoder().encode(text);
+  const buf = await crypto.subtle.digest('SHA-256', enc);
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+function analyzeText(text, type){
+  const lower = text.toLowerCase().trim();
+  const words = lower.split(/\s+/).filter(Boolean);
+  let score = 50, trust = 0, risk = 0;
+  const evidence = [];
+  const trustTerms = ['original','captured','verified','verified device','verified source','signed','timestamp','unaltered','no edits','authentic','source details','creator','metadata'];
+  const riskTerms = ['ai-generated','ai generated','synthetic','deepfake','edited','modified','face swap','voice clone','fabricated','manipulated','tampered','recreated'];
+  trustTerms.forEach(k=>{ if(lower.includes(k)){ score += 6; trust++; evidence.push('Trust signal detected: ' + k); } });
+  riskTerms.forEach(k=>{ if(lower.includes(k)){ score -= 8; risk++; evidence.push('Risk signal detected: ' + k); } });
+  if(words.length >= 25){ score += 6; trust++; evidence.push('Sufficient descriptive context present'); }
+  else if(words.length < 10){ score -= 8; risk++; evidence.push('Very short input reduces verification confidence'); }
+  if(/\b(19|20)\d{2}\b/.test(text)){ score += 4; trust++; evidence.push('Temporal marker found'); }
+  if(/\b(camera|device|location|uploaded|recorded|captured|author|creator|source)\b/i.test(text)){ score += 5; trust++; evidence.push('Source or provenance detail present'); }
+  if(type === 'Image Metadata' || type === 'Video Transcript'){ score += 2; trust++; evidence.push('Media verification mode activated'); }
+  const uniqueRatio = new Set(words).size / Math.max(words.length,1);
+  if(uniqueRatio > 0.72){ score += 4; trust++; evidence.push('High vocabulary diversity'); }
+  else if(uniqueRatio < 0.45){ score -= 5; risk++; evidence.push('Low vocabulary diversity'); }
+  score = Math.max(1, Math.min(99, Math.round(score)));
+  const manipulationRisk = 100 - score;
+  const cls = score >= 78 ? 'Authentic Likely' : (score >= 52 ? 'Needs Review' : 'Possibly Manipulated');
+  const confidence = Math.max(55, Math.min(98, Math.round(60 + Math.abs(score - 50) * 0.7)));
+  return {score, manipulationRisk, cls, confidence, words:words.length, trust, risk, evidence};
+}
+
+function initCharts(){
+  gaugeChart = new Chart(document.getElementById('scoreGauge'), {
+    type:'doughnut',
+    data:{labels:['Authentic','Remaining'],datasets:[{data:[84,16],backgroundColor:['#01696f','#e6e6e6'],borderWidth:0}]},
+    options:{cutout:'72%',plugins:{legend:{display:false},tooltip:{enabled:false}}}
+  });
+  trendChart = new Chart(document.getElementById('trendChart'), {
+    type:'line',
+    data:{labels:[],datasets:[{label:'Authenticity Score',data:[],borderColor:'#01696f',backgroundColor:'rgba(1,105,111,.12)',fill:true,tension:.35}]},
+    options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{min:0,max:100}}}
+  });
+  signalChart = new Chart(document.getElementById('signalChart'), {
+    type:'bar',
+    data:{labels:['Trusted','Risk'],datasets:[{data:[0,0],backgroundColor:['#2e7d32','#b42318']}]},
+    options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true}}}
+  });
+}
+
+async function verifyContent(){
+  const content = document.getElementById('content').value;
+  const type = document.getElementById('ctype').value;
+  const h = await sha256(content + '|' + type);
+  const r = analyzeText(content, type);
+  const tx = '0x' + h.slice(0,24);
+  document.getElementById('classification').innerHTML = `<span class="pill ${r.score>=78?'ok':(r.score>=52?'warn':'bad')}">${r.cls}</span>`;
+  document.getElementById('score').textContent = r.score + '/100';
+  document.getElementById('risk').textContent = r.manipulationRisk + '%';
+  document.getElementById('confidence').textContent = r.confidence + '%';
+  document.getElementById('wordCount').textContent = r.words;
+  document.getElementById('hash').textContent = h;
+  document.getElementById('txid').textContent = tx;
+  document.getElementById('trustCount').textContent = r.trust;
+  document.getElementById('riskCount').textContent = r.risk;
+  document.getElementById('verifyState').textContent = 'Analyzed';
+
+  const evidenceList = document.getElementById('evidenceList');
+  evidenceList.innerHTML = '';
+  r.evidence.forEach(e => { const li = document.createElement('li'); li.textContent = e; evidenceList.appendChild(li); });
+  if(!r.evidence.length){ evidenceList.innerHTML = '<li>No strong evidence extracted.</li>'; }
+
+  gaugeChart.data.datasets[0].data = [r.score, 100-r.score];
+  gaugeChart.data.datasets[0].backgroundColor = [r.score>=78?'#2e7d32':(r.score>=52?'#c77800':'#b42318'),'#e6e6e6'];
+  gaugeChart.update();
+
+  trend.push({t:new Date().toLocaleTimeString(), score:r.score});
+  if(trend.length > 8) trend.shift();
+  trendChart.data.labels = trend.map(x=>x.t);
+  trendChart.data.datasets[0].data = trend.map(x=>x.score);
+  trendChart.update();
+
+  signalChart.data.datasets[0].data = [r.trust, r.risk];
+  signalChart.update();
+
+  const tb = document.querySelector('#ledgerTable tbody');
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td>${new Date().toLocaleString()}</td><td>${r.score}</td><td>${r.cls}</td><td class="mono">${h.slice(0,18)}...</td><td class="mono">${tx}</td>`;
+  tb.prepend(tr);
+  document.getElementById('ledgerCount').textContent = tb.children.length;
+}
+
+document.getElementById('runBtn').addEventListener('click', verifyContent);
+document.getElementById('content').addEventListener('input', () => { clearTimeout(window.__rt); window.__rt = setTimeout(verifyContent, 300); });
+document.getElementById('ctype').addEventListener('change', verifyContent);
+initCharts();
+verifyContent();
+</script>
+</body>
+</html>
